@@ -1,0 +1,90 @@
+---
+# ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubestarter-config
+  # Please update the namespace
+  namespace: kubestarter
+data:
+  # The namespace where the StatefulSets are running
+  namespace: "target-namespace"
+  # The list of StatefulSets to scale
+  sts-list: "sts1,sts2"
+  # Desired number of replicas for each StatefulSet
+  desired_replicas: "2"
+  # Cron string to schedule the scaling
+  cron-string: "25 01 * *"
+  # Every day at 01:25 AM in this example
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubestarter-sa
+  namespace: kubestarter
+---
+# Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubestarter-role
+  # Please update the namespace
+  namespace: target-namespace
+rules:
+  - apiGroups: ["apps"]
+    resources: ["statefulsets/scale"]
+    verbs: ["get", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+---
+# RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubestarter-binding
+  namespace: target-namespace
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubestarter-role
+subjects:
+  - kind: ServiceAccount
+    name: kubestarter-sa
+    namespace: kubestarter
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubestarter
+  namespace: kubestarter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kubestarter
+  template:
+    metadata:
+      labels:
+        app: kubestarter
+    spec:
+      serviceAccountName: kubestarter-sa
+      containers:
+        - name: kubestarter
+          image: yourname/kubestarter:0.0.1
+          envFrom:
+            - configMapRef:
+                name: kubestarter-config
+          command: ["/usr/local/bin/bash", "-c", "/app/kubestarter.sh"]
+          securityContext:
+            # UID and GID of `appuser` and `appgroup`
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      securityContext:
+        fsGroup: 1000  # Ensures mounted volumes are accessible by `appuser`
